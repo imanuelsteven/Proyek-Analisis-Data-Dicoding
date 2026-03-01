@@ -3,8 +3,6 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import seaborn as sns
-from sklearn.cluster import KMeans
-from sklearn.preprocessing import StandardScaler
 
 # ─── PAGE CONFIG ─────────────────────────────────────────────────────────────
 st.set_page_config(
@@ -14,9 +12,19 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+# ─── CONSTANTS ───────────────────────────────────────────────────────────────
+BAR_HIGHLIGHT = "#1f77b4"
+BAR_DEFAULT   = "#b0b0b0"
+
+
+# ─── HELPERS ─────────────────────────────────────────────────────────────────
+def make_colors(n: int) -> list:
+    return [BAR_HIGHLIGHT] + [BAR_DEFAULT] * (n - 1)
+
+
 # ─── LOAD & CLEAN DATA ───────────────────────────────────────────────────────
 @st.cache_data
-def load_data():
+def load_data() -> pd.DataFrame:
     try:
         df = pd.read_csv("dashboard/main_data.csv")
     except FileNotFoundError:
@@ -26,35 +34,33 @@ def load_data():
             st.error("❌ File `main_data.csv` tidak ditemukan. Pastikan file ada di folder `dashboard/` atau direktori yang sama dengan `dashboard.py`.")
             st.stop()
 
-    df_clean = df.copy()
-    df_clean = df_clean.rename(columns={"instant": "id"})
-    df_clean["dteday"] = pd.to_datetime(df_clean["dteday"])
-    df_clean["season"] = df_clean["season"].map({1: "Semi", 2: "Panas", 3: "Gugur", 4: "Dingin"})
-    df_clean["yr"] = df_clean["yr"].map({0: 2011, 1: 2012})
-    df_clean["holiday"] = df_clean["holiday"].map({0: "Tidak Libur", 1: "Libur"})
-    df_clean["weekday"] = df_clean["weekday"].map({
-        0: "Minggu", 1: "Senin", 2: "Selasa", 3: "Rabu", 4: "Kamis", 5: "Jumat", 6: "Sabtu"
+    df = df.rename(columns={"instant": "id"})
+    df["dteday"]     = pd.to_datetime(df["dteday"])
+    df["season"]     = df["season"].map({1: "Semi", 2: "Panas", 3: "Gugur", 4: "Dingin"})
+    df["yr"]         = df["yr"].map({0: 2011, 1: 2012})
+    df["holiday"]    = df["holiday"].map({0: "Tidak Libur", 1: "Libur"})
+    df["weekday"]    = df["weekday"].map({
+        0: "Minggu", 1: "Senin", 2: "Selasa", 3: "Rabu",
+        4: "Kamis",  5: "Jumat", 6: "Sabtu"
     })
-    df_clean["weathersit"] = df_clean["weathersit"].map({
+    df["weathersit"] = df["weathersit"].map({
         1: "Cerah/Partly Cloudy",
         2: "Berkabut/Berawan",
         3: "Hujan/Salju Ringan",
-        4: "Hujan Lebat/Badai"
+        4: "Hujan Lebat/Badai",
     })
-    df_clean["temp"] = (df_clean["temp"] * 41).round(2)
-    df_clean["atemp"] = (df_clean["atemp"] * 50).round(2)
-    df_clean["hum"] = (df_clean["hum"] * 100).round(2)
-    df_clean["windspeed"] = (df_clean["windspeed"] * 67).round(2)
-    return df_clean
+    df["temp"]      = (df["temp"]      * 41).round(2)
+    df["atemp"]     = (df["atemp"]     * 50).round(2)
+    df["hum"]       = (df["hum"]       * 100).round(2)
+    df["windspeed"] = (df["windspeed"] * 67).round(2)
+    df["temp_category"] = df["temp"].apply(
+        lambda x: "Dingin" if x < 15 else ("Sedang" if x <= 25 else "Hangat")
+    )
+    return df
+
 
 df_clean = load_data()
 
-# ─── HELPERS ─────────────────────────────────────────────────────────────────
-BAR_HIGHLIGHT = "#1f77b4"
-BAR_DEFAULT   = "#b0b0b0"
-
-def make_colors(n):
-    return [BAR_HIGHLIGHT] + [BAR_DEFAULT] * (n - 1)
 
 # ─── SIDEBAR ─────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -64,26 +70,22 @@ with st.sidebar:
 
     page = st.radio(
         "Navigasi",
-        ["📊 Overview", "📈 Tren Bulanan", "🌤️ Analisis Cuaca", "⏰ Waktu Penyewaan", "🔬 Clustering"],
+        ["📊 Overview", "📈 Tren Bulanan", "🌤️ Analisis Cuaca", "⏰ Waktu Penyewaan"],
     )
 
     st.divider()
     st.markdown("**Filter Tahun**")
     year_filter = st.multiselect("Pilih Tahun", options=[2011, 2012], default=[2011, 2012])
-
-    if year_filter:
-        df_filtered = df_clean[df_clean["yr"].isin(year_filter)]
-    else:
-        df_filtered = df_clean.copy()
-
     st.divider()
-    st.caption("📁 Dataset: UCI Bike Sharing\n\nPeriode: 2011–2012")
+    st.caption("📁 Dataset: UCI Bike Sharing\nPeriode: 2011–2012")
+
+df_filtered = df_clean[df_clean["yr"].isin(year_filter)] if year_filter else df_clean.copy()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: OVERVIEW
 # ══════════════════════════════════════════════════════════════════════════════
-if page == "📊 Overview":
+def page_overview():
     st.title("📊 Overview — Penyewaan Sepeda 2011–2012")
     st.markdown("Gambaran umum total transaksi, demografi penyewa, dan pertumbuhan tahunan.")
     st.divider()
@@ -94,30 +96,32 @@ if page == "📊 Overview":
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Transaksi", f"{total:,}")
-    col2.metric("Registered", f"{reg:,}", f"{reg/total:.1%} dari total")
-    col3.metric("Casual", f"{cas:,}", f"{cas/total:.1%} dari total")
+    col2.metric("Registered",      f"{reg:,}",  f"{reg/total:.1%} dari total")
+    col3.metric("Casual",          f"{cas:,}",  f"{cas/total:.1%} dari total")
 
     if len(year_filter) == 2:
-        yr = df_clean.groupby("yr")["cnt"].sum()
+        yr  = df_clean.groupby("yr")["cnt"].sum()
         yoy = (yr[2012] - yr[2011]) / yr[2011]
         col4.metric("YoY Growth (2011→2012)", f"+{yoy:.1%}")
     else:
         col4.metric("YoY Growth", "—", "Pilih 2 tahun")
 
     st.markdown("")
-
     col_left, col_right = st.columns(2)
 
+    # ── Donut Chart ──
     with col_left:
         st.subheader("🍩 Demografi Penyewa")
         fig, ax = plt.subplots(figsize=(7, 5))
-        sizes  = [reg, cas]
-        colors = ["#4472C4", "#b0b0b0"]
-        labels = ["Registered", "Casual"]
         wedges, _, autotexts = ax.pie(
-            sizes, labels=labels, autopct="%1.1f%%",
-            startangle=90, colors=colors, pctdistance=0.82,
-            explode=(0.05, 0), textprops={"fontsize": 12, "fontweight": "bold"}
+            [reg, cas],
+            labels=["Registered", "Casual"],
+            autopct="%1.1f%%",
+            startangle=90,
+            colors=["#4472C4", BAR_DEFAULT],
+            pctdistance=0.82,
+            explode=(0.05, 0),
+            textprops={"fontsize": 12, "fontweight": "bold"},
         )
         plt.setp(autotexts, size=12, color="white")
         ax.add_artist(plt.Circle((0, 0), 0.68, fc="white"))
@@ -127,18 +131,26 @@ if page == "📊 Overview":
         plt.tight_layout()
         st.pyplot(fig)
         plt.close()
+        st.info("**Insight:** Pengguna *registered* mendominasi ~81% total transaksi. "
+                "Segmen *casual* (~19%) berpotensi dikonversi menjadi member terdaftar.")
 
+    # ── Bar Chart per Tahun ──
     with col_right:
         st.subheader("📅 Transaksi per Tahun")
-        yr_data = df_filtered.groupby("yr")["cnt"].sum().sort_values(ascending=False).reset_index()
+        yr_data = (
+            df_filtered.groupby("yr")["cnt"]
+            .sum()
+            .sort_values(ascending=False)
+            .reset_index()
+        )
         yr_data.columns = ["Tahun", "Total"]
         yr_data["Tahun"] = yr_data["Tahun"].astype(str)
 
         fig, ax = plt.subplots(figsize=(7, 5))
-        colors_yr = make_colors(len(yr_data))
-        bars = ax.bar(yr_data["Tahun"], yr_data["Total"], color=colors_yr, width=0.5)
+        bars = ax.bar(yr_data["Tahun"], yr_data["Total"],
+                      color=make_colors(len(yr_data)), width=0.5)
         for bar, val in zip(bars, yr_data["Total"]):
-            ax.text(bar.get_x() + bar.get_width()/2, val,
+            ax.text(bar.get_x() + bar.get_width() / 2, val,
                     f"{val:,}", ha="center", va="bottom", fontsize=12, fontstyle="italic")
         ax.set_title("Total Transaksi per Tahun", fontsize=13, pad=10, fontweight="bold")
         ax.set_xlabel("Tahun", fontsize=11)
@@ -149,32 +161,32 @@ if page == "📊 Overview":
         plt.tight_layout()
         st.pyplot(fig)
         plt.close()
+        st.info("**Insight:** Terjadi pertumbuhan signifikan dari 2011 ke 2012 (~64% YoY), "
+                "menunjukkan adopsi layanan yang terus meningkat.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: TREN BULANAN
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "📈 Tren Bulanan":
+def page_tren_bulanan():
     st.title("📈 Tren Penyewaan Sepeda Bulanan")
     st.markdown("Perkembangan total transaksi per bulan selama periode 2011–2012.")
     st.divider()
 
-    df_filtered = df_filtered.copy()
-    df_filtered["month"] = df_filtered["dteday"].dt.to_period("M")
-    monthly = (
-        df_filtered.groupby("month")
-        .agg(cnt=("cnt", "sum"))
-        .reset_index()
-    )
+    df_m = df_filtered.copy()
+    df_m["month"] = df_m["dteday"].dt.to_period("M")
+    monthly = df_m.groupby("month").agg(cnt=("cnt", "sum")).reset_index()
     monthly["month_dt"] = monthly["month"].dt.to_timestamp()
 
     fig, ax = plt.subplots(figsize=(14, 6))
-    ax.plot(monthly["month_dt"], monthly["cnt"], color="#1f77b4", linewidth=2.5, marker="o", markersize=5)
+    ax.plot(monthly["month_dt"], monthly["cnt"],
+            color=BAR_HIGHLIGHT, linewidth=2.5, marker="o", markersize=5)
 
     if 2011 in year_filter and 2012 in year_filter:
-        ax.axvline(pd.Timestamp("2012-01-01"), color="gray", linestyle="--", linewidth=1.2, alpha=0.7)
-        ax.text(pd.Timestamp("2012-01-15"), monthly["cnt"].max() * 1.02, "2012 →",
-                fontsize=9, color="gray")
+        ax.axvline(pd.Timestamp("2012-01-01"), color="gray", linestyle="--",
+                   linewidth=1.2, alpha=0.7)
+        ax.text(pd.Timestamp("2012-01-15"), monthly["cnt"].max() * 1.02,
+                "2012 →", fontsize=9, color="gray")
 
     ax.set_title("Tren Penyewaan Sepeda Bulanan", fontsize=16, pad=15)
     ax.set_xlabel("Bulan", fontsize=12)
@@ -188,25 +200,28 @@ elif page == "📈 Tren Bulanan":
     st.pyplot(fig)
     plt.close()
 
-    peak_month = monthly.loc[monthly["cnt"].idxmax()]
-    low_month  = monthly.loc[monthly["cnt"].idxmin()]
+    peak = monthly.loc[monthly["cnt"].idxmax()]
+    low  = monthly.loc[monthly["cnt"].idxmin()]
     c1, c2 = st.columns(2)
     with c1:
-        st.success(f"🏆 **Peak Month:** {peak_month['month_dt'].strftime('%B %Y')} — {peak_month['cnt']:,} transaksi")
+        st.success(f"🏆 **Peak Month:** {peak['month_dt'].strftime('%B %Y')} — {peak['cnt']:,} transaksi")
     with c2:
-        st.info(f"📉 **Lowest Month:** {low_month['month_dt'].strftime('%B %Y')} — {low_month['cnt']:,} transaksi")
+        st.info(f"📉 **Lowest Month:** {low['month_dt'].strftime('%B %Y')} — {low['cnt']:,} transaksi")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: ANALISIS CUACA
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "🌤️ Analisis Cuaca":
+def page_analisis_cuaca():
     st.title("🌤️ Analisis Cuaca")
     st.markdown("Pengaruh musim, kondisi cuaca, dan suhu terhadap volume penyewaan.")
     st.divider()
 
-    tab1, tab2, tab3 = st.tabs(["🌸 Per Musim", "🌧️ Kondisi Cuaca", "🌡️ Suhu vs Transaksi"])
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "🌸 Per Musim", "🌧️ Kondisi Cuaca", "🌡️ Suhu vs Transaksi", "🌡️ Kategori Suhu"
+    ])
 
+    # ── Tab 1: Per Musim ──
     with tab1:
         season_data = (
             df_filtered.groupby("season")
@@ -218,8 +233,7 @@ elif page == "🌤️ Analisis Cuaca":
         total_s = season_data["cnt"].sum()
 
         fig, ax = plt.subplots(figsize=(12, 6))
-        colors_s = make_colors(len(season_data))
-        ax.bar(season_data["season"], season_data["cnt"], color=colors_s)
+        ax.bar(season_data["season"], season_data["cnt"], color=make_colors(len(season_data)))
         for idx, row in season_data.iterrows():
             label = f"{row['cnt']:,} ({row['cnt']/total_s:.1%})\nMean Suhu: {row['temp']:.1f}°C"
             ax.text(idx, row["cnt"], label, ha="center", va="bottom",
@@ -233,7 +247,10 @@ elif page == "🌤️ Analisis Cuaca":
         plt.tight_layout()
         st.pyplot(fig)
         plt.close()
+        st.info("**Insight:** Musim Gugur berkontribusi terbesar, diikuti Panas. "
+                "Musim Semi mencatat transaksi terendah — peluang untuk promosi *low season*.")
 
+    # ── Tab 2: Kondisi Cuaca ──
     with tab2:
         weather_data = (
             df_filtered.groupby("weathersit")
@@ -244,22 +261,27 @@ elif page == "🌤️ Analisis Cuaca":
         )
 
         fig, ax = plt.subplots(figsize=(12, 6))
-        colors_w = make_colors(len(weather_data))
-        sns.barplot(data=weather_data, x="weathersit", y="sumcount",
-                    palette=colors_w, ax=ax)
+        ax.bar(weather_data["weathersit"], weather_data["sumcount"],
+               color=make_colors(len(weather_data)))
         for idx, row in weather_data.iterrows():
-            ax.text(idx, row["sumcount"] + weather_data["sumcount"].max()*0.01,
-                    f"{row['sumcount']:,}", ha="center", va="bottom", fontsize=10, fontstyle="italic")
+            ax.text(idx, row["sumcount"] + weather_data["sumcount"].max() * 0.01,
+                    f"{row['sumcount']:,}", ha="center", va="bottom",
+                    fontsize=10, fontstyle="italic")
         ax.set_title("Total Penyewaan per Kondisi Cuaca", fontsize=16, pad=15, fontweight="bold")
         ax.set_xlabel("Kondisi Cuaca", fontsize=12)
         ax.set_ylabel("Total Transaksi", fontsize=12)
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x):,}"))
         ax.set_ylim(0, weather_data["sumcount"].max() * 1.15)
+        ax.tick_params(axis="x", labelsize=9)
         ax.grid(False)
         plt.tight_layout()
         st.pyplot(fig)
         plt.close()
+        st.info("**Insight:** Kondisi cerah mendominasi transaksi (~67%). "
+                "Cuaca hujan dan badai menekan penyewaan secara drastis — "
+                "distribusi armada dapat disesuaikan secara *real-time*.")
 
+    # ── Tab 3: Scatter Suhu ──
     with tab3:
         fig, ax = plt.subplots(figsize=(12, 6))
         sns.scatterplot(data=df_filtered, x="temp", y="cnt",
@@ -267,25 +289,56 @@ elif page == "🌤️ Analisis Cuaca":
         sns.regplot(data=df_filtered, x="temp", y="cnt",
                     scatter=False, color="black",
                     line_kws={"linewidth": 1.5, "linestyle": "--"}, ax=ax)
-        ax.set_title("Hubungan Suhu vs Jumlah Transaksi per Musim", fontsize=16, pad=15, fontweight="bold")
+        ax.set_title("Hubungan Suhu vs Jumlah Transaksi per Musim",
+                     fontsize=16, pad=15, fontweight="bold")
         ax.set_xlabel("Suhu (°C)", fontsize=12)
         ax.set_ylabel("Jumlah Transaksi", fontsize=12)
         ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x):,}"))
         plt.tight_layout()
         st.pyplot(fig)
         plt.close()
+        st.info("**Insight:** Tren positif antara suhu dan jumlah transaksi. "
+                "Rentang suhu 20–35°C adalah zona penyewaan paling optimal.")
+
+    # ── Tab 4: Kategori Suhu ──
+    with tab4:
+        temp_cluster = (
+            df_filtered.groupby("temp_category")["cnt"]
+            .sum()
+            .sort_values(ascending=False)
+        )
+        colors_tc = [BAR_HIGHLIGHT] + ["#d3d3d3"] * (len(temp_cluster) - 1)
+
+        fig, ax = plt.subplots(figsize=(10, 5))
+        bars = ax.bar(temp_cluster.index, temp_cluster.values, color=colors_tc)
+        for bar in bars:
+            h = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width() / 2, h,
+                    f"{int(h):,}", ha="center", va="bottom", fontsize=11)
+        ax.set_title("Transaksi Penyewaan berdasarkan Kategori Suhu",
+                     fontsize=16, pad=12, fontweight="bold")
+        ax.set_xlabel("Kategori Suhu", fontsize=12)
+        ax.set_ylabel("Total Transaksi", fontsize=12)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x):,}"))
+        ax.grid(False)
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close()
+        st.info("**Insight:** Kategori **Hangat** (>25°C) menghasilkan hampir 3× lebih banyak "
+                "transaksi dibanding **Dingin** (<15°C). Suhu adalah variabel penentu permintaan.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
 # PAGE: WAKTU PENYEWAAN
 # ══════════════════════════════════════════════════════════════════════════════
-elif page == "⏰ Waktu Penyewaan":
+def page_waktu_penyewaan():
     st.title("⏰ Waktu Penyewaan")
     st.markdown("Analisis rata-rata penyewaan berdasarkan hari dan jam dalam sehari.")
     st.divider()
 
     tab1, tab2 = st.tabs(["📅 Per Hari", "🕐 Per Jam"])
 
+    # ── Tab 1: Per Hari ──
     with tab1:
         weekday_data = (
             df_filtered.groupby("weekday")
@@ -294,12 +347,10 @@ elif page == "⏰ Waktu Penyewaan":
             .sort_values("mean_cnt", ascending=False)
             .reset_index(drop=True)
         )
-        weekday_data["color"] = make_colors(len(weekday_data))
 
         fig, ax = plt.subplots(figsize=(12, 6))
-        sns.barplot(data=weekday_data, x="weekday", y="mean_cnt",
-                    palette=weekday_data["color"].tolist(), ax=ax,
-                    hue="weekday", dodge=False, legend=False)
+        ax.bar(weekday_data["weekday"], weekday_data["mean_cnt"],
+               color=make_colors(len(weekday_data)))
         for idx, row in weekday_data.iterrows():
             ax.text(idx, row["mean_cnt"], f"{row['mean_cnt']:,.0f}",
                     ha="center", va="bottom", fontsize=10, fontstyle="italic")
@@ -312,7 +363,10 @@ elif page == "⏰ Waktu Penyewaan":
         plt.tight_layout()
         st.pyplot(fig)
         plt.close()
+        st.info("**Insight:** Kamis dan Jumat mencatat rata-rata tertinggi, menunjukkan "
+                "dominasi penggunaan untuk *commuting* di hari kerja.")
 
+    # ── Tab 2: Per Jam ──
     with tab2:
         hour_data = (
             df_filtered.groupby("hr")
@@ -322,11 +376,10 @@ elif page == "⏰ Waktu Penyewaan":
             .reset_index(drop=True)
         )
         hour_data["hr_label"] = hour_data["hr"].astype(str)
-        hour_data["color"] = make_colors(len(hour_data))
 
         fig, ax = plt.subplots(figsize=(14, 6))
-        sns.barplot(data=hour_data, x="hr_label", y="mean_cnt",
-                    palette=hour_data["color"].tolist(), ax=ax)
+        ax.bar(hour_data["hr_label"], hour_data["mean_cnt"],
+               color=make_colors(len(hour_data)))
         for idx, row in hour_data.iterrows():
             ax.text(idx, row["mean_cnt"] + 2, f"{row['mean_cnt']:,.0f}",
                     ha="center", va="bottom", fontsize=8, fontstyle="italic")
@@ -341,89 +394,22 @@ elif page == "⏰ Waktu Penyewaan":
         plt.close()
 
         top5 = hour_data.nlargest(5, "mean_cnt")
-        st.info(f"🏆 **Top 5 Peak Hours:** " +
-                ", ".join([f"Jam {int(r['hr'])} ({r['mean_cnt']:,.0f})" for _, r in top5.iterrows()]))
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# PAGE: CLUSTERING
-# ══════════════════════════════════════════════════════════════════════════════
-elif page == "🔬 Clustering":
-    st.title("🔬 Clustering Kondisi Cuaca")
-    st.markdown("Segmentasi cuaca menggunakan K-Means berdasarkan suhu, kelembaban, dan kecepatan angin.")
-    st.divider()
-
-    features = ["temp", "hum", "windspeed"]
-    X = df_clean[features].copy()
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    tab1, tab2 = st.tabs(["📐 Elbow Method", "🔵 Hasil Clustering"])
-
-    with tab1:
-        st.subheader("Menentukan Jumlah Cluster Optimal")
-        inertia = []
-        k_range = range(1, 10)
-        for k in k_range:
-            km = KMeans(n_clusters=k, random_state=42, n_init=10)
-            km.fit(X_scaled)
-            inertia.append(km.inertia_)
-
-        fig, ax = plt.subplots(figsize=(10, 5))
-        ax.plot(list(k_range), inertia, marker="o", color="#1f77b4", linewidth=2.5)
-        ax.axvline(4, color="red", linestyle="--", alpha=0.5, linewidth=1.2)
-        ax.text(4.1, max(inertia)*0.9, "k=4 (optimal)", color="red", fontsize=10)
-        ax.set_title("Elbow Method — Jumlah Cluster Optimal", fontsize=16, pad=15, fontweight="bold")
-        ax.set_xlabel("Jumlah Cluster (k)", fontsize=12)
-        ax.set_ylabel("Inertia", fontsize=12)
-        ax.grid(axis="y", alpha=0.3)
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close()
-
-    with tab2:
-        n_clusters = st.slider("Jumlah Cluster", min_value=2, max_value=8, value=4, step=1)
-
-        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-        df_clean = df_clean.copy()
-        df_clean["cluster"] = kmeans.fit_predict(X_scaled)
-
-        cluster_insight = (
-            df_clean.groupby("cluster")
-            .agg(temp=("temp", "mean"), hum=("hum", "mean"),
-                 windspeed=("windspeed", "mean"), cnt=("cnt", "sum"))
-            .reset_index()
+        st.success(
+            "🏆 **Top 5 Peak Hours:** " +
+            ", ".join([f"Jam {int(r['hr'])} ({r['mean_cnt']:,.0f})" for _, r in top5.iterrows()])
         )
-        cluster_insight.rename(columns={
-            "temp": "Rata-rata Suhu (°C)",
-            "hum": "Rata-rata Kelembaban (%)",
-            "windspeed": "Rata-rata Kecepatan Angin (km/h)",
-            "cnt": "Total Penyewaan"
-        }, inplace=True)
-        cluster_insight = cluster_insight.sort_values("Total Penyewaan", ascending=False).reset_index(drop=True)
-        cluster_insight["Total Penyewaan"] = cluster_insight["Total Penyewaan"].apply(lambda x: f"{x:,}")
+        st.info("**Insight:** Dua jam puncak terjadi pukul **08.00** (berangkat kerja) "
+                "dan **17.00–18.00** (pulang kerja), menegaskan fungsi utama sebagai moda *commuting*.")
 
-        st.subheader("Karakteristik per Cluster")
-        st.dataframe(cluster_insight.round(2), use_container_width=True)
 
-        st.subheader("Scatter Plot: Suhu vs Transaksi")
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.scatterplot(data=df_clean, x="temp", y="cnt",
-                        hue="cluster", palette="Set2", alpha=0.4, ax=ax)
-        ax.set_title("Clustering Kondisi Cuaca vs Jumlah Transaksi", fontsize=16, pad=15, fontweight="bold")
-        ax.set_xlabel("Suhu (°C)", fontsize=12)
-        ax.set_ylabel("Jumlah Transaksi", fontsize=12)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda x, _: f"{int(x):,}"))
-        ax.legend(title="Cluster", fontsize=10)
-        ax.grid(False)
-        plt.tight_layout()
-        st.pyplot(fig)
-        plt.close()
-
-        st.divider()
-        st.info("""
-💡 **Insight Clustering:**
-- **Cluster terpanas & kering** → volume penyewaan tertinggi, ideal untuk ekspansi armada
-- **Cluster kelembaban tinggi** → volume moderat, diskon dapat meningkatkan demand
-- **Cluster dingin & berangin** → volume terendah, alihkan resource ke maintenance
-        """)
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTER
+# ══════════════════════════════════════════════════════════════════════════════
+if page == "📊 Overview":
+    page_overview()
+elif page == "📈 Tren Bulanan":
+    page_tren_bulanan()
+elif page == "🌤️ Analisis Cuaca":
+    page_analisis_cuaca()
+elif page == "⏰ Waktu Penyewaan":
+    page_waktu_penyewaan()
