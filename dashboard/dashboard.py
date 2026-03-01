@@ -54,7 +54,7 @@ def load_data() -> pd.DataFrame:
     df["hum"]       = (df["hum"]       * 100).round(2)
     df["windspeed"] = (df["windspeed"] * 67).round(2)
     df["temp_category"] = df["temp"].apply(
-        lambda x: "Dingin" if x < 15 else ("Sedang" if x <= 25 else "Hangat")
+        lambda x: "Dingin <15°C" if x < 15 else ("Sedang 15-25°C" if x <= 25 else "Hangat >25°C")
     )
     return df
 
